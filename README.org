@@ -1,0 +1,32 @@
+* multischedule
+A multiple-asynchronous scheduling and delegation algorithm as part of CS223.
+
+** Theoretical Structure 
+Throughout the implementation, a "task" is defined by an atomic action with any number of parameters that returns a singlet value and performs most of its operations exclusively via side effects.
+
+*** Load
+Throughout all of designing a multiple-scheduling algorithm, we first need to define what actually to optimize for. This is largely arbitrary (referred by algorithms as "load"), but good metrics include "number of operations remaining", "number of tasks remaining", "CPU usage". All of the scheduling mechanisms wishes to achieve "load balance" --- roughly equal mean load across nodes.
+
+*** Load Sharing Mechanics
+To define an multiple-scheduling algorithm, we first need to define its mechanism to distribute tasks.
+
+Note that, under all schemes, a "load balancer" could simply be a thread on each of the nodes running with some exclusive CPU carve-out---therefore any node within the cluster can load-balance itself, and any node outside can contact any node inside the cluster.
+
+**** Sender-Initiated Algorithms
+In **sender-initiated** systems, the processing cluster will immediately accept all sender delegated tasks; the load balancer will reschedule the task to the least-loaded node upon receipt of a task. Overcommited nodes will re-allocate unstarted tasks to the load-balancer to undercomitted nodes.
+
+This has theoretically the least scheduling overhead, but the cluster may become overcommitted without any recourse as more tasks are added to the same node---as it requires compute resources to transfer a task.
+
+**** Receiver-Initiated Algorithms
+In **receiver-initiated** systems, the processing cluster will itself probe for tasks to complete from a shared queue outside the cluster. Instead of the sender, nodes---once becoming undercomitted---will request from the most overcommited node one of its unstarted tasks.
+
+This method is more theoretically stable---overcommition is not a predicate for task transfers---but may cause many un-needed transfers between nodes.
+
+**** Symmetric Search Algorithms
+Load balancers, in this case, do both of the above. Under low load, a node does not actively poll for other, lower-loaded nodes to which to transfer the current task. Upon a certain load threshold, receiver-initated polling begins. All nodes are ready to both send and receive tasks.
+
+
+** Implementation
+In this system, we will provide an implementation of a multi-threaded, symmetric search load sharing mechanism. In this implementation, we define "load" as a user-provided metric per task, and the load limit of a node is completely user defined. Therefore, the current load of a node is simply the "load" of each task multiplied by the number of tasks of that type the current node has in queue.
+
+As per discussed above, tasks are atomic, and no data sharing mutex facilities are provided.
