@@ -18,6 +18,8 @@ We will attempt to demonstrate some of the features of multischedule.
   "I don't do a whole lot ... yet."
   [& args]
 
+  (println "Hello!")
+
   ;;;; Tasks ;;;;
 
   ;; Under this scheme, =tasks= are defined as any unit of work
@@ -36,11 +38,11 @@ We will attempt to demonstrate some of the features of multischedule.
   ;; tasks.
 
   ;; Here's a random task list!
-  (def *task-list* [(task/create-task :one 50 #(identity 1))
-                    (task/create-task :two 70 #(identity 2))
-                    (task/create-task :three 70 #(identity 3))
-                    (task/create-task :four 10 #(identity 4))
-                    (task/create-task :five 5 #(identity 5))])
+  (def ^:dynamic *task-list* [(task/create-task :one 50 #(identity 1))
+                              (task/create-task :two 70 #(identity 2))
+                              (task/create-task :three 70 #(identity 3))
+                              (task/create-task :four 10 #(identity 4))
+                              (task/create-task :five 5 #(identity 5))])
 
   ;; A word about the task list: you can see the "name" of the task
   ;; (keyword :num) corresponds to the value it returns.
@@ -54,7 +56,7 @@ We will attempt to demonstrate some of the features of multischedule.
   ;; to act as a "load-balancer" and /share/ its work with others when
   ;; needed. We will hand it to node-one here.
 
-  (def *global-state*
+  (def ^:dynamic *global-state*
     {:name "network-name"
      :time (System/currentTimeMillis)
      :hosts [{:name 'host-one
@@ -79,22 +81,21 @@ We will attempt to demonstrate some of the features of multischedule.
 
   ;; We will poll for node-one. This asks to process the backlog in
   ;; node one.
-  (def *res-stream* (node/process *global-state* 'node-one))
+  (def ^:dynamic *res-stream* (node/process *global-state* 'node-one))
 
   ;; The return type from *res-stream* is a Java many-to-many task
   ;; stream. We can use blocking =take=s (<!!) to block the current
   ;; thread and wait for results.
 
   ;; We will attempt te get all 5 results
-  (def *results* (repeatedly 5 #(<!! *res-stream*)))
+  (def ^:dynamic *results* (repeatedly 5 #(<!! *res-stream*)))
 
-  (pprint *results*)
-                                        ; ({:five 5, :worker node-one}
-                                        ;  {:two 2, :worker node-three}
-                                        ;  {:four 4, :worker node-one}
-                                        ;  {:one 1, :worker node-three}
-                                        ;  {:three 3, :worker node-one})
-
+  (println *results*) ; ({:five 5, :worker node-one}
+                      ;  {:two 2, :worker node-three}
+                      ;  {:four 4, :worker node-one}
+                      ;  {:one 1, :worker node-three}
+                      ;  {:three 3, :worker node-one})
+                             
   ;; As you can see, the load sharing mechanism correctly
   ;; recognized that one and three are the most free
   ;; and shared the load appropriately.

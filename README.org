@@ -30,3 +30,34 @@ Load balancers, in this case, do both of the above. Under low load, a node does 
 In this system, we will provide an implementation of a multi-threaded, symmetric search load sharing mechanism. In this implementation, we define "load" as a user-provided metric per task, and the load limit of a node is completely user defined. Therefore, the current load of a node is simply the "load" of each task multiplied by the number of tasks of that type the current node has in queue.
 
 As per discussed above, tasks are atomic, and no data sharing mutex facilities are provided.
+
+There is a few imp
+
+** Running
+The program is admittedly a very unstable system at the moment, in that it is =one-shot= (meaning it performs a single step of load balancing before needing reset), as well as =non-threadsafe=, which means that no memory leaking is not guaranteed. Furthermore, most of the value in this assignment is viewable in this document + the source code.
+
+However, it would be run-able if needed.
+
+Begin by installing the Clojure stack; use your favorite package manager to install:
+
+#+begin_src bash
+$(PKG_MGR) $(INSTALL_OP) clojure leiningen
+#+end_src
+
+on macOS, this would be:
+
+#+begin_src bash
+brew install clojure leiningen
+#+end_src
+
+Because Java is a little fussy, it would be ideal but not required that you don't have an existing copy of Java on your system. However, your package manager, as a part of installing leiningen, /should/ detect and configure whatever Java you have, and install the recommended one (=openJDK 18=) if missing.
+
+Navigate to the folder of the project, and execute:
+
+#+begin_src bash
+lein run
+#+end_src
+
+If this is your first run of a Clojure project, it may take minutes (and gigabytes) for all the Java =.jar= used to support Clojure is pulled in.
+
+To distinguish compile time and run time (which =lein= makes transparent), this program prints "Hello!" at the top of the mainloop to demarcate program start.
