@@ -27,11 +27,87 @@ Load balancers, in this case, do both of the above. Under low load, a node does 
 
 
 ** Implementation
-In this system, we will provide an implementation of a multi-threaded, symmetric search load sharing mechanism. In this implementation, we define "load" as a user-provided metric per task, and the load limit of a node is completely user defined. Therefore, the current load of a node is simply the "load" of each task multiplied by the number of tasks of that type the current node has in queue.
+In this system, we will provide an implementation of a multi-threaded, symmetric search load sharing mechanism. In this implementation, we define "load" as a user-provided metric per task, and the load limit of a node is completely user defined. Therefore, the current load of a node is simply the "load" of each task multiplied by the number of tasks of that type the current node has in queue. As per discussed above, tasks are atomic, and no data sharing mutex facilities are provided.
 
-As per discussed above, tasks are atomic, and no data sharing mutex facilities are provided.
+There is a few important implementation details that makes this project particularly interesting.
 
-There is a few imp
+This is a symmetric search mechanism, but polling is done through one line established user-side (sender-initiated). Why? According to the literature, low load situations call for sender-initiation much more frequently, and the presumption is that if the nodes are /not runnig/, there should be no load.
+
+Therefore, the user initiates the first call, calling any node to begin polling:
+
+#+begin_src clojure
+(node/process *global-state* 'node-one)
+#+end_src
+
+#+RESULTS:
+: #object[clojure.core.async.impl.channels.ManyToManyChannel 0x369fb02d "clojure.core.async.impl.channels.ManyToManyChannel@369fb02d"]
+
+As seen above, it will return a many-to-many channel containing promises for results take able by blocking the execution thread via the channel at the user's leisure.
+
+To actually schedule the tasks, the above call triggers the scheduler in =node.clj=. The function of note here is not =(node/process)=, but instead =process-simple=, the "simple" processor for hosts marked as =simple=. Tasks that come in first get dropped to the overall backlog of tasks of not already in there:
+
+(L142, node.clj)
+
+#+begin_src clojure
+;; (let [tasks
+(if (and (-> task nil? not)
+                       (not (in? (:backlog self) task)))
+                (conj (:backlog self) task)
+                (:backlog self))
+;; ])
+#+end_src
+
+Then, the system calls =process-backlog=, a function that relaxes the 0/1 knapsack problem by greedily solving it: paring as much high-load tasks as possible that would fit under the load limit, and relegating the rest to a new backlog:
+
+(L57, node.clj)
+
+#+begin_src clojure
+(reduce (fn [history curr]
+          (let [new-load (+ (first history) (:load curr))]
+            (if (< new-load (- (:max-load self) (:load self)))
+              (cons new-load
+                    (cons curr (rest history)))
+              history)))
+        '(0)
+        backlog)
+#+end_src
+
+This function hijacks the Clojure reducer, mapping and reducing over the old backlog to add up loads until adding new elements hits the load limit. The backlog is already sorted.
+
+The function returns the tasks that should be processed ("in the knapsack"), and filters the backlog against those tasks to get the new backlog
+
+Finally, =do-run= is called, whereby the actual processing channels are created:
+
+(L88, node.clj)
+
+#+begin_src clojure
+(let [channel (async/to-chan tasks)
+      backlog (async/to-chan backlog)
+      results (async/chan)])
+#+end_src
+
+The node then first processes its main tasks---creating *sender initiation*---(that in =channel=), each in a =go= thread (=go= creates a unsafe unblocking thread in =core.async= for Clojure.) =channel= the backlog of tasks, =backlog= is any tasks that are a part of the new backlog, and =results= are the processed results.
+
+(L104, node.clj)
+
+#+begin_src clojure
+(go (let [task (<! channel)] ;;... ))
+#+end_src
+
+As you can see, one task is taken off the =channel= queue (=(<! channel)=), and processed.
+
+After each set of processing is finished, and while the threaded have not merged yet, we filter for nodes that are more free than the current one and sends the highest-value yet possible task from the backlog channel to that node (also in a new thread)---creating *receiver initiation*:
+
+(L114, node.clj)
+
+#+begin_src clojure
+(go (let [next-node (reverse (sort-by #(- (:max-load %)
+                                          (:load %)) (:nodes new-state)))]
+      (if-let [next-task (<! backlog)]
+        (async/admix mix (process new-state (:name (first next-node)) next-task)))))
+#+end_src
+
+The results are then collated by adding the promise channel to the results channel, tagged with the worker's name, and returned after merging the threads (via =(async/admix)=, which mixes the two results channels).
 
 ** Running
 The program is admittedly a very unstable system at the moment, in that it is =one-shot= (meaning it performs a single step of load balancing before needing reset), as well as =non-threadsafe=, which means that no memory leaking is not guaranteed. Furthermore, most of the value in this assignment is viewable in this document + the source code.
