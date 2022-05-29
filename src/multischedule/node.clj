@@ -53,6 +53,7 @@
 
   [self backlog]
 
+  
   (let [processed (reduce (fn [history curr]
                             ;; we first calculate the new load
                             (let [new-load (+ (first history) (:load curr))]
@@ -62,12 +63,14 @@
                               ;;
                               ;; we elect to take largest item
                               ;; first.
-                              (if (< new-load (:max-load self))
+                              (if (< new-load (- (:max-load self) (:load self)))
                                 (cons new-load
                                       (cons curr (rest history)))
                                 history)))
                           '(0)
                           backlog)]
+
+    
 
       
     ;; getting both the processed result in a list
@@ -80,10 +83,10 @@
   "actually run a bunch of tasks on parallel threads"
   [new-state self tasks backlog]
 
-  
   ;; we first nonblocking put everything
   ;; on the communication channel.
   (let [channel (async/to-chan tasks)
+        backlog (async/to-chan backlog)
         results (async/chan)] ;; to capture any upcycled tasks
 
 
@@ -100,14 +103,6 @@
                     ;; go take one off...
                     (fn [] (go (let [task (<! channel)]
                                  ;; and do it!
-                                 ;; 
-                                 ;; print debug message as we are in
-                                 ;; demonstration
-                                 ;; (println "DEBUG doing fn" (:fn task))
-                                 ;; and do the task
-                                 
-                                 ;; (println "DEBUG" (:name self) "\n\n\n\n\n")
-
                                  ;; once we are done, ask for more things to process
                                  ;; and add those to the results as well.
                                  ;;
@@ -116,10 +111,20 @@
                                  ;; use to process
 
                                  ;; ask the most available node to process the backlog
-                                 (let [next-node (reverse (sort-by #(- (:max-load %)
-                                                                       (:load %)) (:nodes new-state)))]
-                                   (async/admix mix (process new-state (:name (first next-node)) backlog)))
-                               {(:name task) (apply (:fn task) (:args task))})))))]
+                                 (go (let [next-node (reverse (sort-by #(- (:max-load %)
+                                                                           (:load %)) (:nodes new-state)))]
+                                       (if-let [next-task (<! backlog)]
+                                         (async/admix mix (process new-state (:name (first next-node)) next-task))
+                                         )))
+                                 {(:name task) (apply (:fn task) (:args task))
+                                  :worker (:name self)})))))]
+
+      ;; Dump the rest of backlog away
+      (let [next-node (reverse (sort-by #(- (:max-load %)
+                                            (:load %)) (:nodes new-state)))]
+        (when-let [next-task (<!! backlog)]
+          (async/admix mix (process new-state (:name (first next-node)) next-task))))
+      
       ;; add defaults channel
       (async/admix mix default)
       ;; block take for results
@@ -141,7 +146,7 @@
         ;; sort the backlog by load and filter
         ;; by those under the limit
         backlog (reverse
-                         (sort-by #(:load %) tasks))]
+                 (sort-by #(:load %) tasks))]
 
     
 
@@ -153,13 +158,14 @@
       ;; return the results of processing.
       ;;
       ;; we additionally update the capacity of the load
-        (println "hewwo"(:name self))
+      
       ;; (if (= (:name self) 'node-two)
       ;;   (println (:name self)))
 
-      (do-run (update-node state (:name self) :load load
-                                :backlog backlog)
-              self processed backlog))))
+      (do-run (update-node state (:name self)
+                           :load load
+                           :backlog pending)
+              self processed pending))))
 
 
 ;;;; Node Manipulation Utilities ;;;;
